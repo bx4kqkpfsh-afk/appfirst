@@ -14,6 +14,7 @@
 - PDF.js 本地逐页渲染，最多处理 30 页 PDF；每页独立识别与校对。
 - Worker `/api/jobs` 对多页结果进行标准化、排序、SHA-256 模型签名和导出就绪检查。
 - Worker `/api/export` 根据多页模型直接生成可编辑 DOCX，以及包含节点和连接线的多页 Visio VDX。
+- 可选 OpenAI 视觉 + DeepSeek 推理共识复核：仅复核公式、低置信度文本和含 `□/�` 的候选；两者冲突时保留原文。
 
 ## 处理架构
 
@@ -22,6 +23,19 @@
 - Word/Visio：由 Worker 从通过验证的多页模型生成；PPT 在浏览器生成独立可编辑对象，每个 PDF 页面对应一张幻灯片。
 
 原始文件不会被 Worker 持久化保存。单文件限制为 50 MB，PDF 限制为 30 页。
+
+## 高精度 AI 复核（可选）
+
+在部署环境中配置以下变量即可启用：
+
+- `OPENAI_API_KEY`：作为密钥保存，禁止提交到 GitHub。
+- `OPENAI_VISION_MODEL`：可选，默认 `gpt-5.6`。
+- `DEEPSEEK_API_KEY`：作为密钥保存，禁止提交到 GitHub。
+- `DEEPSEEK_MODEL`：可选，默认 `deepseek-v4-pro`。
+
+开启界面中的“多模型高精度复核”后，候选页面图像发送至 OpenAI Responses API，候选文本和 OpenAI 提案发送至 DeepSeek；原始文件不会发送给 DeepSeek。两个模型一致时才自动采用修正，冲突、超时或输出未通过校验时保留本地结果。仅配置 OpenAI 时保持视觉复核能力；仅配置 DeepSeek 时只允许高置信度文本修正，不自动改公式。所有修正还必须通过非法字形过滤和置信度门槛，界面保留修正前文本供人工复核。
+
+DeepSeek 官方公共 API 是文本推理接口。DeepSeek-OCR 属于需要 CUDA/GPU 的自托管模型，不能直接运行在 Cloudflare Worker；如需它，可在后续部署独立 GPU 服务并接入现有复核管线。
 
 ## 本地运行
 
