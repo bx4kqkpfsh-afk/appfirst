@@ -36,6 +36,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createValidationSample } from "./lib/analyze-image";
 import { analyzeDocument } from "./lib/analyze-document";
+import { reviewWithAi } from "./lib/ai-review";
 import {
   exportDiagramSvg,
   exportPowerPoint,
@@ -113,6 +114,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [aiReviewEnabled, setAiReviewEnabled] = useState(true);
 
   useEffect(() => {
     fetch("/api/health")
@@ -196,21 +198,26 @@ export default function Home() {
         setProgress(value);
         setProgressLabel(label);
       });
+      const reviewedResult = aiReviewEnabled
+        ? await reviewWithAi(localResult, (value, label) => { setProgress(value); setProgressLabel(label); })
+        : localResult;
       const response = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fileName: localResult.fileName,
-          width: localResult.width,
-          height: localResult.height,
+          fileName: reviewedResult.fileName,
+          width: reviewedResult.width,
+          height: reviewedResult.height,
           fileSize: file.size,
-          elements: localResult.elements,
-          pages: localResult.pages?.map(({ pageNumber, width, height, elements }) => ({ pageNumber, width, height, elements })),
+          elements: reviewedResult.elements,
+          pages: reviewedResult.pages?.map(({ pageNumber, width, height, elements }) => ({ pageNumber, width, height, elements })),
         }),
       });
       if (!response.ok) throw new Error("后端验证未通过，请重新上传更清晰的图片。 ");
       const verification = (await response.json()) as VerificationResult;
-      const complete = { ...localResult, verification };
+      if (reviewedResult.aiReview?.warning) verification.warnings.push(reviewedResult.aiReview.warning);
+      if (reviewedResult.aiReview?.conflicts) verification.warnings.push(`多模型发现 ${reviewedResult.aiReview.conflicts} 处修正冲突，已安全保留本地原文，请人工复核。`);
+      const complete = { ...reviewedResult, verification };
       setResult(complete);
       setPreviewUrl(complete.imageUrl);
       setProgress(100);
@@ -287,7 +294,7 @@ export default function Home() {
         </nav>
         <div className="side-note">
           <ShieldCheck size={18} />
-          <div><strong>本地优先处理</strong><span>图片不会上传到第三方模型</span></div>
+          <div><strong>本地优先处理</strong><span>视觉页发 OpenAI，候选文本发 DeepSeek</span></div>
         </div>
         <div className="side-footer">
           <div className={`system-dot ${health}`}></div>
@@ -305,7 +312,7 @@ export default function Home() {
             <div><h1>智能识别</h1><p>上传 · 提取 · 校对 · 导出</p></div>
           </div>
           <div className="top-actions">
-            <div className="local-badge"><ShieldCheck size={16} /><i></i>本地识别</div>
+            <div className="local-badge"><ShieldCheck size={16} /><i></i>{aiReviewEnabled ? "本地识别 + 多模型共识" : "纯本地识别"}</div>
             <button className="icon-button" aria-label="帮助"><CircleHelp size={19} /></button>
             <button className="icon-button" aria-label="设置"><Settings2 size={19} /></button>
           </div>
@@ -384,7 +391,12 @@ export default function Home() {
 
               <div className="analysis-controls">
                 <div className="mode-picker"><span>识别类型</span><button className="active"><Check size={14} />智能检测</button><button><ScanText size={14} />文字 OCR</button><button><Sigma size={14} />公式识别</button><button><Network size={14} />框图重构</button></div>
-                <div className="privacy-toggle"><span>中英混排</span><i className="switch on"><b /></i><span>版式保留</span></div>
+                <div className="privacy-toggle">
+                  <span>中英混排</span><span>版式保留</span>
+                  <button className={`ai-review-toggle ${aiReviewEnabled ? "on" : ""}`} role="switch" aria-checked={aiReviewEnabled} onClick={() => setAiReviewEnabled((current) => !current)}>
+                    <i><b /></i><span>多模型高精度复核</span>
+                  </button>
+                </div>
               </div>
             </article>
 
@@ -404,7 +416,8 @@ export default function Home() {
                     ["文字", 42],
                     ["公式", 69],
                     ["框图", 84],
-                    ["验证", 96],
+                    ["模型共识", 94],
+                    ["验证", 99],
                   ].map(([label, threshold]) => (
                     <div key={label} className={progress >= Number(threshold) ? "complete" : progress > Number(threshold) - 20 ? "current" : ""}>
                       <span>{progress >= Number(threshold) ? <Check size={12} /> : <i />}</span><b>{label}</b>
@@ -427,7 +440,7 @@ export default function Home() {
                       <span className="kind-icon" style={{ color: kindColor[element.type], backgroundColor: `${kindColor[element.type]}12` }}>
                         {element.type === "text" ? <ScanText size={17} /> : element.type === "formula" ? <Sigma size={17} /> : element.type === "image" ? <FileImage size={17} /> : element.type === "diagram-shape" ? <Box size={17} /> : <Workflow size={17} />}
                       </span>
-                      <span className="row-main"><b>{kindLabel[element.type]}{result.pages && result.pages.length > 1 ? ` · 第${element.pageNumber || 1}页` : ""}</b><em>{element.content}</em></span>
+                      <span className="row-main"><b>{kindLabel[element.type]}{result.pages && result.pages.length > 1 ? ` · 第${element.pageNumber || 1}页` : ""}{element.source === "ai-review" ? <small className="ai-corrected">AI 修正</small> : null}</b><em>{element.content}</em>{element.originalContent ? <small className="original-content">原识别：{element.originalContent}</small> : null}</span>
                       <span className="confidence-mini"><i style={{ width: `${element.confidence * 100}%` }} />{Math.round(element.confidence * 100)}%</span>
                     </button>
                   ))}
