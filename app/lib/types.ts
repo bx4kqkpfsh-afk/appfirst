@@ -23,7 +23,10 @@ export type ExtractedElement = {
   imageUrl?: string;
   role?: "title" | "heading" | "paragraph" | "caption" | "equation" | "figure";
   fontSize?: number;
-  source?: "native-pdf" | "ocr" | "diagram";
+  source?: "native-pdf" | "ocr" | "diagram" | "ai-review";
+  originalContent?: string;
+  reviewReason?: string;
+  reviewStatus?: "corrected" | "unchanged" | "needs-review";
 };
 
 export type DocumentPage = {
@@ -69,6 +72,15 @@ export type AnalysisResult = {
   sourceType?: "image" | "pdf";
   pages?: DocumentPage[];
   verification?: VerificationResult;
+  aiReview?: {
+    enabled: boolean;
+    corrected: number;
+    reviewed: number;
+    model?: string;
+    reviewers?: string[];
+    conflicts?: number;
+    warning?: string;
+  };
 };
 
 export const kindLabel: Record<ElementKind, string> = {
