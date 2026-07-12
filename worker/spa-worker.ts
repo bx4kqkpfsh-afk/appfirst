@@ -2,6 +2,10 @@ import JSZip from "jszip";
 
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
+  OPENAI_API_KEY?: string;
+  OPENAI_VISION_MODEL?: string;
+  DEEPSEEK_API_KEY?: string;
+  DEEPSEEK_MODEL?: string;
 }
 
 type ElementPayload = {
@@ -21,6 +25,148 @@ const kinds = new Set(["text", "formula", "image", "diagram-shape", "diagram-con
 
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+}
+
+const BROKEN_GLYPH = /[□�\uFFFD\uE000-\uF8FF]/u;
+
+const outputText = (response: Record<string, unknown>) => {
+  if (typeof response.output_text === "string") return response.output_text;
+  const output = Array.isArray(response.output) ? response.output as Array<Record<string, unknown>> : [];
+  for (const item of output) {
+    const content = Array.isArray(item.content) ? item.content as Array<Record<string, unknown>> : [];
+    for (const part of content) if (part.type === "output_text" && typeof part.text === "string") return part.text;
+  }
+  return "";
+};
+
+type ReviewCandidate = { id: string; type: string; content: string; bbox: ElementPayload["bbox"]; role: unknown };
+type ReviewCorrection = { id: string; content: string; type: "text" | "formula"; confidence: number; reason: string };
+
+const cleanCorrections = (items: unknown, candidateIds: Set<string>): ReviewCorrection[] =>
+  (Array.isArray(items) ? items : []).flatMap((item) => {
+    const value = item as Record<string, unknown>;
+    const type = String(value.type || "");
+    const content = typeof value.content === "string" ? value.content.trim() : "";
+    if (!candidateIds.has(String(value.id)) || !["text", "formula"].includes(type) || !content || content.length > 4000 ||
+      BROKEN_GLYPH.test(content) || !Number.isFinite(value.confidence)) return [];
+    return [{
+      id: String(value.id), content, type: type as "text" | "formula",
+      confidence: Math.max(0, Math.min(1, Number(value.confidence))),
+      reason: String(value.reason || "模型复核").slice(0, 240),
+    }];
+  });
+
+async function requestOpenAiReview(payload: Record<string, unknown>, candidates: ReviewCandidate[], env: Env, signal: AbortSignal) {
+  if (!env.OPENAI_API_KEY) return { corrections: [] as ReviewCorrection[], model: "", reviewer: "" };
+  const model = env.OPENAI_VISION_MODEL || "gpt-5.6";
+  const schema = {
+    type: "object", additionalProperties: false,
+    properties: { corrections: { type: "array", items: {
+      type: "object", additionalProperties: false,
+      properties: {
+        id: { type: "string" }, content: { type: "string" }, type: { type: "string", enum: ["text", "formula"] },
+        confidence: { type: "number", minimum: 0, maximum: 1 }, reason: { type: "string" },
+      }, required: ["id", "content", "type", "confidence", "reason"],
+    } } }, required: ["corrections"],
+  };
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    signal,
+    headers: { "authorization": `Bearer ${env.OPENAI_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      input: [
+        { role: "system", content: [{ type: "input_text", text: "You are a conservative document OCR and math transcription verifier. Compare each candidate with the exact page image. Correct only characters that are visually supported. Preserve language, punctuation, paragraph wording, equation symbols, subscripts and superscripts. Never invent missing text. If uncertain, return the original candidate unchanged. Never emit placeholder squares, replacement characters, private-use glyphs, Markdown, or explanations inside content." }] },
+        { role: "user", content: [
+          { type: "input_text", text: `Page ${Number(payload.pageNumber || 1)} dimensions ${Number(payload.width || 0)}x${Number(payload.height || 0)}. Candidate JSON: ${JSON.stringify(candidates)}` },
+          { type: "input_image", image_url: payload.imageUrl, detail: "original" },
+        ] },
+      ],
+      text: { format: { type: "json_schema", name: "document_corrections", strict: true, schema } },
+      max_output_tokens: 10000,
+    }),
+  });
+  const body = await response.json() as Record<string, unknown>;
+  if (!response.ok) throw new Error("OPENAI_PROVIDER_ERROR");
+  const parsed = JSON.parse(outputText(body)) as { corrections?: unknown[] };
+  return { corrections: cleanCorrections(parsed.corrections, new Set(candidates.map((item) => item.id))), model, reviewer: "OpenAI Vision" };
+}
+
+async function requestDeepSeekReview(candidates: ReviewCandidate[], visual: ReviewCorrection[], env: Env, signal: AbortSignal) {
+  if (!env.DEEPSEEK_API_KEY) return { corrections: [] as ReviewCorrection[], model: "", reviewer: "" };
+  const model = env.DEEPSEEK_MODEL || "deepseek-v4-pro";
+  const response = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    signal,
+    headers: { "authorization": `Bearer ${env.DEEPSEEK_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model, stream: false, temperature: 0, max_tokens: 8000,
+      thinking: { type: "enabled" }, reasoning_effort: "high",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: "You are the second, independent verifier in a document OCR consensus pipeline. Return JSON only with shape {\"corrections\":[{\"id\":string,\"content\":string,\"type\":\"text\"|\"formula\",\"confidence\":number,\"reason\":string}]}. Compare original candidates with the visual verifier proposals. Endorse a proposal only when language, syntax, formula semantics and surrounding context support it. Otherwise return the original unchanged. Never invent missing content and never output □, replacement characters, private-use glyphs, Markdown, or extra keys." },
+        { role: "user", content: JSON.stringify({ original_candidates: candidates, visual_verifier_proposals: visual }) },
+      ],
+    }),
+  });
+  const body = await response.json() as Record<string, unknown>;
+  if (!response.ok) throw new Error("DEEPSEEK_PROVIDER_ERROR");
+  const choices = Array.isArray(body.choices) ? body.choices as Array<Record<string, unknown>> : [];
+  const message = choices[0]?.message as Record<string, unknown> | undefined;
+  if (typeof message?.content !== "string") throw new Error("DEEPSEEK_EMPTY_OUTPUT");
+  const parsed = JSON.parse(message.content) as { corrections?: unknown[] };
+  return { corrections: cleanCorrections(parsed.corrections, new Set(candidates.map((item) => item.id))), model, reviewer: "DeepSeek Reasoner" };
+}
+
+const normalizeConsensusText = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
+
+async function aiReview(request: Request, env: Env) {
+  if (!env.OPENAI_API_KEY && !env.DEEPSEEK_API_KEY) return json({ error: "AI_NOT_CONFIGURED", message: "未配置高精度 AI 复核。" }, 503);
+  let payload: Record<string, unknown>;
+  try { payload = await request.json() as Record<string, unknown>; }
+  catch { return json({ error: "INVALID_JSON", message: "无法读取 AI 复核请求。" }, 400); }
+  const imageUrl = typeof payload.imageUrl === "string" ? payload.imageUrl : "";
+  const elements = Array.isArray(payload.elements) ? (payload.elements as ElementPayload[]).slice(0, 120) : [];
+  if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(imageUrl) || !elements.length) {
+    return json({ error: "INVALID_REVIEW_INPUT", message: "页面图像或候选元素无效。" }, 422);
+  }
+  const candidates = elements.flatMap((item) => {
+    if (typeof item.id !== "string" || !["text", "formula"].includes(String(item.type)) || typeof item.content !== "string") return [];
+    const box = item.bbox || {};
+    if (![box.x, box.y, box.width, box.height].every(Number.isFinite)) return [];
+    return [{ id: item.id, type: String(item.type), content: item.content.slice(0, 4000), bbox: box, role: item.role }];
+  });
+  if (!candidates.length) return json({ corrections: [], reviewers: [], conflicts: 0 });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 110000);
+  try {
+    const visual = await requestOpenAiReview(payload, candidates, env, controller.signal);
+    const semantic = await requestDeepSeekReview(candidates, visual.corrections, env, controller.signal);
+    const visualMap = new Map(visual.corrections.map((item) => [item.id, item]));
+    const semanticMap = new Map(semantic.corrections.map((item) => [item.id, item]));
+    const corrections: ReviewCorrection[] = [];
+    let conflicts = 0;
+    for (const candidate of candidates) {
+      const first = visualMap.get(candidate.id);
+      const second = semanticMap.get(candidate.id);
+      if (first && second) {
+        if (normalizeConsensusText(first.content) === normalizeConsensusText(second.content)) {
+          corrections.push({ ...first, confidence: Math.min(first.confidence, second.confidence), reason: `视觉与 DeepSeek 共识：${first.reason}` });
+        } else conflicts += 1;
+      } else if (first && !env.DEEPSEEK_API_KEY) corrections.push(first);
+      else if (second && !env.OPENAI_API_KEY && candidate.type === "text" && second.confidence >= 0.92) {
+        corrections.push({ ...second, confidence: Math.min(0.84, second.confidence), reason: `DeepSeek 文本复核（无视觉证据）：${second.reason}` });
+      }
+    }
+    return json({
+      corrections, conflicts,
+      reviewers: [visual.reviewer, semantic.reviewer].filter(Boolean),
+      models: [visual.model, semantic.model].filter(Boolean),
+      model: [visual.model, semantic.model].filter(Boolean).join(" + "),
+    });
+  } catch (error) {
+    return json({ error: error instanceof DOMException && error.name === "AbortError" ? "AI_TIMEOUT" : "AI_INVALID_OUTPUT", message: "多模型复核超时、服务异常或返回格式无效。" }, 502);
+  } finally { clearTimeout(timer); }
 }
 
 async function analyze(request: Request) {
@@ -267,7 +413,15 @@ const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/api/health") {
-      return json({ status: "ok", service: "docvision-document-backend", version: "2.0.0", processing: "local-first-plus-backend-model" });
+      return json({
+        status: "ok", service: "docvision-document-backend", version: "4.0.0",
+        processing: "local-first-plus-multi-model-consensus",
+        aiReviewConfigured: Boolean(env.OPENAI_API_KEY || env.DEEPSEEK_API_KEY),
+        reviewers: {
+          openai: { configured: Boolean(env.OPENAI_API_KEY), model: env.OPENAI_VISION_MODEL || "gpt-5.6" },
+          deepseek: { configured: Boolean(env.DEEPSEEK_API_KEY), model: env.DEEPSEEK_MODEL || "deepseek-v4-pro" },
+        },
+      });
     }
     if (url.pathname === "/api/analyze" || url.pathname === "/api/jobs") {
       if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
@@ -276,6 +430,10 @@ const worker = {
     if (url.pathname === "/api/export") {
       if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
       return exportDocument(request);
+    }
+    if (url.pathname === "/api/ai-review") {
+      if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+      return aiReview(request, env);
     }
 
     const asset = await env.ASSETS.fetch(request);
