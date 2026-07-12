@@ -1,0 +1,292 @@
+{
+  "input": {
+    "path": "/workspace/docvision-studio/tests/fixtures/docvision-benchmark-tilted.jpg",
+    "width": 1637,
+    "height": 1059,
+    "deskewAngle": -1
+  },
+  "metrics": {
+    "textLineAccuracy": 100,
+    "formulaCharacterAccuracy": 100,
+    "diagramNodeLabelAccuracy": 100,
+    "diagramShapeF1": 100,
+    "diagramConnectorF1": 100,
+    "weightedOverallAccuracy": 100
+  },
+  "expected": {
+    "text": [
+      "文档智能识别测试报告",
+      "Document Vision Accuracy Test",
+      "系统输入经过特征提取后生成可编辑输出",
+      "The reconstructed result keeps every element editable."
+    ],
+    "formula": "Score(dx, dy) = SUM F_ir(x,y) * F_sat(x+dx,y+dy)",
+    "diagramLabels": [
+      "图像输入",
+      "特征提取",
+      "可编辑输出"
+    ],
+    "diagramShapes": 3,
+    "diagramConnectors": 2
+  },
+  "recognized": {
+    "lines": [
+      {
+        "text": "文档智能识别测试报告",
+        "confidence": 96,
+        "bbox": {
+          "x": 131,
+          "y": 122,
+          "width": 535,
+          "height": 52
+        }
+      },
+      {
+        "text": "Document Vision Accuracy Test",
+        "confidence": 89,
+        "bbox": {
+          "x": 132,
+          "y": 204,
+          "width": 528,
+          "height": 34
+        }
+      },
+      {
+        "text": "系统输入经过特征提取后生成可编辑输出",
+        "confidence": 96,
+        "bbox": {
+          "x": 131,
+          "y": 318,
+          "width": 642,
+          "height": 34
+        }
+      },
+      {
+        "text": "The reconstructed result keeps every element editable.",
+        "confidence": 96,
+        "bbox": {
+          "x": 128,
+          "y": 398,
+          "width": 804,
+          "height": 29
+        }
+      },
+      {
+        "text": "Score(dx, dy) = SUM F_ir(x,y) * F_sat(x+dx,y+dy)",
+        "confidence": 91,
+        "bbox": {
+          "x": 176,
+          "y": 520,
+          "width": 826,
+          "height": 38
+        }
+      },
+      {
+        "text": "系统框图 / Editable system diagram",
+        "confidence": 88,
+        "bbox": {
+          "x": 131,
+          "y": 650,
+          "width": 450,
+          "height": 30
+        }
+      },
+      {
+        "text": "图像输入”上到 BEER ——Pt",
+        "confidence": 47,
+        "bbox": {
+          "x": 227,
+          "y": 768,
+          "width": 970,
+          "height": 52
+        }
+      },
+      {
+        "text": "可编辑输出",
+        "confidence": 96,
+        "bbox": {
+          "x": 1259,
+          "y": 781,
+          "width": 165,
+          "height": 32
+        }
+      },
+      {
+        "text": "Ground truth: 4 text lines - 1 formula - 3 nodes - 2 connectors",
+        "confidence": 91,
+        "bbox": {
+          "x": 129,
+          "y": 922,
+          "width": 675,
+          "height": 17
+        }
+      }
+    ],
+    "formulaCandidates": [
+      {
+        "text": "Score(dx, dy) = SUM F_ir(x,y) * F_sat(x+dx,y+dy)",
+        "confidence": 91,
+        "bbox": {
+          "x": 176,
+          "y": 520,
+          "width": 826,
+          "height": 38
+        }
+      }
+    ],
+    "bestFormula": {
+      "actual": "Score(dx, dy) = SUM F_ir(x,y) * F_sat(x+dx,y+dy)",
+      "confidence": 91,
+      "accuracy": 1
+    },
+    "nodeLabels": [
+      {
+        "text": "图像输入",
+        "confidence": 93
+      },
+      {
+        "text": "特征提取",
+        "confidence": 73
+      },
+      {
+        "text": "可编辑输出",
+        "confidence": 82
+      }
+    ],
+    "nodeLabelMatches": [
+      {
+        "expected": "图像输入",
+        "text": "图像输入",
+        "confidence": 93,
+        "accuracy": 1
+      },
+      {
+        "expected": "特征提取",
+        "text": "特征提取",
+        "confidence": 73,
+        "accuracy": 1
+      },
+      {
+        "expected": "可编辑输出",
+        "text": "可编辑输出",
+        "confidence": 82,
+        "accuracy": 1
+      }
+    ],
+    "diagramShapes": 3,
+    "diagramConnectors": 2,
+    "diagramElements": [
+      {
+        "id": "shape-1",
+        "type": "diagram-shape",
+        "content": "节点 1",
+        "confidence": 0.82,
+        "bbox": {
+          "x": 136,
+          "y": 732,
+          "width": 312,
+          "height": 120
+        },
+        "geometry": {
+          "shape": "rectangle"
+        }
+      },
+      {
+        "id": "shape-2",
+        "type": "diagram-shape",
+        "content": "节点 2",
+        "confidence": 0.82,
+        "bbox": {
+          "x": 661,
+          "y": 734,
+          "width": 312,
+          "height": 120
+        },
+        "geometry": {
+          "shape": "rectangle"
+        }
+      },
+      {
+        "id": "shape-3",
+        "type": "diagram-shape",
+        "content": "节点 3",
+        "confidence": 0.82,
+        "bbox": {
+          "x": 1186,
+          "y": 734,
+          "width": 312,
+          "height": 120
+        },
+        "geometry": {
+          "shape": "rectangle"
+        }
+      },
+      {
+        "id": "connector-1",
+        "type": "diagram-connector",
+        "content": "连接线",
+        "confidence": 0.76,
+        "bbox": {
+          "x": 446,
+          "y": 790,
+          "width": 221,
+          "height": 4
+        },
+        "geometry": {
+          "points": [
+            446,
+            792,
+            667,
+            792
+          ]
+        }
+      },
+      {
+        "id": "connector-2",
+        "type": "diagram-connector",
+        "content": "连接线",
+        "confidence": 0.76,
+        "bbox": {
+          "x": 971,
+          "y": 790,
+          "width": 219,
+          "height": 4
+        },
+        "geometry": {
+          "points": [
+            971,
+            792,
+            1190,
+            792
+          ]
+        }
+      }
+    ]
+  },
+  "textMatches": [
+    {
+      "expected": "文档智能识别测试报告",
+      "actual": "文档智能识别测试报告",
+      "confidence": 96,
+      "accuracy": 1
+    },
+    {
+      "expected": "Document Vision Accuracy Test",
+      "actual": "Document Vision Accuracy Test",
+      "confidence": 89,
+      "accuracy": 1
+    },
+    {
+      "expected": "系统输入经过特征提取后生成可编辑输出",
+      "actual": "系统输入经过特征提取后生成可编辑输出",
+      "confidence": 96,
+      "accuracy": 1
+    },
+    {
+      "expected": "The reconstructed result keeps every element editable.",
+      "actual": "The reconstructed result keeps every element editable.",
+      "confidence": 96,
+      "accuracy": 1
+    }
+  ]
+}

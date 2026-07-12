@@ -1,0 +1,16 @@
+{
+  "text": [
+    "文档智能识别测试报告",
+    "Document Vision Accuracy Test",
+    "系统输入经过特征提取后生成可编辑输出",
+    "The reconstructed result keeps every element editable."
+  ],
+  "formula": "Score(dx, dy) = SUM F_ir(x,y) * F_sat(x+dx,y+dy)",
+  "diagramLabels": [
+    "图像输入",
+    "特征提取",
+    "可编辑输出"
+  ],
+  "diagramShapes": 3,
+  "diagramConnectors": 2
+}

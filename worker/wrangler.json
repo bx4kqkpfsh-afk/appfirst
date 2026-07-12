@@ -1,0 +1,8 @@
+{
+  "name": "docvision-studio",
+  "main": "index.js",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "../client", "binding": "ASSETS" },
+  "observability": { "enabled": true }
+}
