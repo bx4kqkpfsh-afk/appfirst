@@ -33,7 +33,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createValidationSample } from "./lib/analyze-image";
 import { analyzeDocument } from "./lib/analyze-document";
 import { reviewWithAi } from "./lib/ai-review";
@@ -53,6 +53,15 @@ import { kindColor, kindLabel } from "./lib/types";
 
 type Status = "idle" | "ready" | "analyzing" | "done" | "error";
 type ExportFormat = "word" | "ppt" | "visio";
+type RecognitionMode = "auto" | "text" | "formula" | "diagram";
+type DialogKind = "help" | "settings" | "exports" | "tasks" | null;
+
+const recognitionModes = [
+  { id: "auto" as const, label: "智能检测", icon: Check },
+  { id: "text" as const, label: "文字 OCR", icon: ScanText },
+  { id: "formula" as const, label: "公式识别", icon: Sigma },
+  { id: "diagram" as const, label: "框图重构", icon: Network },
+];
 
 const formatOptions = [
   {
@@ -98,6 +107,9 @@ function countByKind(elements: ExtractedElement[], kind: ElementKind) {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<HTMLElement>(null);
+  const taskRef = useRef<HTMLElement>(null);
+  const exportRef = useRef<HTMLElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -115,6 +127,9 @@ export default function Home() {
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [aiReviewEnabled, setAiReviewEnabled] = useState(true);
+  const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>("auto");
+  const [dialog, setDialog] = useState<DialogKind>(null);
+  const [exportHistory, setExportHistory] = useState<Array<{ format: ExportFormat; name: string; at: string }>>([]);
 
   useEffect(() => {
     fetch("/api/health")
@@ -186,6 +201,22 @@ export default function Home() {
     }
   };
 
+  const scrollTo = (ref: RefObject<HTMLElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setSidebarOpen(false);
+  };
+
+  const applyRecognitionMode = (source: AnalysisResult) => {
+    if (recognitionMode === "auto") return source;
+    const include = (element: ExtractedElement) => recognitionMode === "text"
+      ? element.type === "text" || element.type === "image"
+      : recognitionMode === "formula"
+        ? element.type === "formula"
+        : element.type === "diagram-shape" || element.type === "diagram-connector";
+    const pages = source.pages?.map((page) => ({ ...page, elements: page.elements.filter(include) }));
+    return { ...source, pages, elements: source.elements.filter(include) };
+  };
+
   const startAnalysis = async () => {
     if (!file || status === "analyzing") return;
     setStatus("analyzing");
@@ -194,14 +225,15 @@ export default function Home() {
     setResult(null);
     setActiveElement(null);
     try {
-      const localResult = await analyzeDocument(file, (value, label) => {
+      const analyzedResult = await analyzeDocument(file, (value, label) => {
         setProgress(value);
         setProgressLabel(label);
       });
+      const localResult = applyRecognitionMode(analyzedResult);
       const reviewedResult = aiReviewEnabled
         ? await reviewWithAi(localResult, (value, label) => { setProgress(value); setProgressLabel(label); })
         : localResult;
-      const response = await fetch("/api/jobs", {
+      const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -264,6 +296,7 @@ export default function Home() {
       if (format === "word") await exportWordFromBackend(result);
       if (format === "ppt") await exportPowerPoint(result);
       if (format === "visio") await exportVisioFromBackend(result);
+      setExportHistory((current) => [{ format, name: result.fileName, at: new Date().toLocaleString("zh-CN") }, ...current].slice(0, 20));
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "导出失败，请重试。 ");
     } finally {
@@ -287,10 +320,10 @@ export default function Home() {
           <button className="mobile-close" onClick={() => setSidebarOpen(false)} aria-label="关闭菜单"><X size={18} /></button>
         </div>
         <nav className="side-nav" aria-label="主导航">
-          <button className="active"><WandSparkles size={19} /><span>智能识别</span></button>
-          <button><FolderClock size={19} /><span>任务中心</span><small>1</small></button>
-          <button><FileOutput size={19} /><span>导出记录</span></button>
-          <button><Layers3 size={19} /><span>模板管理</span></button>
+          <button className="active" onClick={() => scrollTo(uploadRef)}><WandSparkles size={19} /><span>智能识别</span></button>
+          <button onClick={() => file ? scrollTo(taskRef) : setDialog("tasks")}><FolderClock size={19} /><span>任务中心</span>{file && <small>1</small>}</button>
+          <button onClick={() => setDialog("exports")}><FileOutput size={19} /><span>导出记录</span>{exportHistory.length > 0 && <small>{exportHistory.length}</small>}</button>
+          <button onClick={async () => { await loadSample(); setSidebarOpen(false); requestAnimationFrame(() => scrollTo(uploadRef)); }}><Layers3 size={19} /><span>模板管理</span></button>
         </nav>
         <div className="side-note">
           <ShieldCheck size={18} />
@@ -313,14 +346,14 @@ export default function Home() {
           </div>
           <div className="top-actions">
             <div className="local-badge"><ShieldCheck size={16} /><i></i>{aiReviewEnabled ? "本地识别 + 多模型共识" : "纯本地识别"}</div>
-            <button className="icon-button" aria-label="帮助"><CircleHelp size={19} /></button>
-            <button className="icon-button" aria-label="设置"><Settings2 size={19} /></button>
+            <button className="icon-button" aria-label="帮助" onClick={() => setDialog("help")}><CircleHelp size={19} /></button>
+            <button className="icon-button" aria-label="设置" onClick={() => setDialog("settings")}><Settings2 size={19} /></button>
           </div>
         </header>
 
         <div className="work-grid">
           <section className="main-column">
-            <article className="panel upload-panel">
+            <article className="panel upload-panel" ref={uploadRef}>
               <div className="panel-heading">
                 <div><span className="eyebrow">STEP 01 · INPUT</span><h2>上传图片或 PDF</h2><p>逐页识别文字、公式和系统框图，并重构为可编辑内容</p></div>
                 {file && <button className="quiet-button" onClick={() => inputRef.current?.click()}><RefreshCcw size={15} />更换文件</button>}
@@ -390,7 +423,7 @@ export default function Home() {
               <input ref={inputRef} type="file" accept="application/pdf,image/png,image/jpeg,image/webp,image/bmp" hidden onChange={(event) => { const selected = event.target.files?.[0]; if (selected) acceptFile(selected); event.currentTarget.value = ""; }} />
 
               <div className="analysis-controls">
-                <div className="mode-picker"><span>识别类型</span><button className="active"><Check size={14} />智能检测</button><button><ScanText size={14} />文字 OCR</button><button><Sigma size={14} />公式识别</button><button><Network size={14} />框图重构</button></div>
+                <div className="mode-picker"><span>识别类型</span>{recognitionModes.map((mode) => { const Icon = mode.icon; return <button key={mode.id} className={recognitionMode === mode.id ? "active" : ""} aria-pressed={recognitionMode === mode.id} onClick={() => setRecognitionMode(mode.id)}><Icon size={14} />{mode.label}</button>; })}</div>
                 <div className="privacy-toggle">
                   <span>中英混排</span><span>版式保留</span>
                   <button className={`ai-review-toggle ${aiReviewEnabled ? "on" : ""}`} role="switch" aria-checked={aiReviewEnabled} onClick={() => setAiReviewEnabled((current) => !current)}>
@@ -401,7 +434,7 @@ export default function Home() {
             </article>
 
             {file && (
-              <article className={`panel task-panel status-${status}`}>
+              <article className={`panel task-panel status-${status}`} ref={taskRef}>
                 <div className="task-topline">
                   <div className="task-status-icon">
                     {status === "analyzing" ? <LoaderCircle size={19} className="spin" /> : status === "done" ? <CheckCircle2 size={19} /> : <Activity size={19} />}
@@ -472,7 +505,7 @@ export default function Home() {
               </div>
             </article>
 
-            <article className="panel export-panel">
+            <article className="panel export-panel" ref={exportRef}>
               <div className="section-heading"><span className="eyebrow">STEP 03 · EXPORT</span><h2>输出格式</h2></div>
               <div className="format-list">
                 {formatOptions.map((option) => {
@@ -513,6 +546,15 @@ export default function Home() {
           </aside>
         </div>
       </section>
+      {dialog && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>
+        <section className="app-modal" role="dialog" aria-modal="true" aria-label={dialog === "help" ? "使用帮助" : dialog === "settings" ? "识别设置" : dialog === "exports" ? "导出记录" : "任务中心"}>
+          <header><strong>{dialog === "help" ? "使用帮助" : dialog === "settings" ? "识别设置" : dialog === "exports" ? "导出记录" : "任务中心"}</strong><button onClick={() => setDialog(null)} aria-label="关闭弹窗"><X size={17} /></button></header>
+          {dialog === "help" && <div className="modal-content"><p>1. 上传图片或 PDF，也可以加载内置验证样例。</p><p>2. 选择识别模式并开始智能重构。</p><p>3. 点击识别区域校对文字、公式或框图节点。</p><p>4. 选择 Word、PPT 或 Visio 后导出可编辑文件。</p></div>}
+          {dialog === "settings" && <div className="modal-content"><label className="setting-row"><span><strong>多模型高精度复核</strong><small>未配置 API 时自动保留本地结果</small></span><button className={`ai-review-toggle ${aiReviewEnabled ? "on" : ""}`} role="switch" aria-checked={aiReviewEnabled} onClick={() => setAiReviewEnabled((current) => !current)}><i><b /></i></button></label><p className="setting-note">OCR 模型、中文语言包和公式/框图检测均在当前浏览器执行；原始文件不被后端持久化。</p></div>}
+          {dialog === "exports" && <div className="modal-content">{exportHistory.length ? exportHistory.map((item, index) => <div className="history-row" key={`${item.at}-${index}`}><FileCheck2 size={17} /><span><strong>{item.name}</strong><small>{item.format.toUpperCase()} · {item.at}</small></span></div>) : <p>当前浏览器会话还没有导出记录。</p>}</div>}
+          {dialog === "tasks" && <div className="modal-content"><p>当前没有识别任务。请先上传文件或点击“加载验证样例”。</p><button className="modal-primary" onClick={async () => { setDialog(null); await loadSample(); requestAnimationFrame(() => scrollTo(uploadRef)); }}>加载验证样例</button></div>}
+        </section>
+      </div>}
     </main>
   );
 }
