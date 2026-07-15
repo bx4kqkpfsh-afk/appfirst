@@ -27,6 +27,12 @@ timeout \
 
 echo "Building static SPA and resilient Worker entry..."
 "${SITES_PROJECT_ROOT}/node_modules/.bin/vite" build --config vite.spa.config.ts
+core_source="${SITES_PROJECT_ROOT}/node_modules/tesseract.js-core"
+core_target="${SITES_PROJECT_ROOT}/dist/client/tesseract-core"
+if [[ -d "${core_source}" ]]; then
+  mkdir -p "${core_target}"
+  cp "${core_source}"/tesseract-core*.wasm.js "${core_target}/"
+fi
 "${SITES_PROJECT_ROOT}/node_modules/.bin/vite" build --config vite.worker.config.ts
 cp "${SITES_PROJECT_ROOT}/worker/wrangler.json" "${SITES_PROJECT_ROOT}/dist/server/wrangler.json"
 
