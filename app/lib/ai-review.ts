@@ -56,18 +56,32 @@ export async function reviewWithAi(
     const page = reviewPages[index];
     const candidates = page.elements.filter(needsAiReview).slice(0, 120);
     onProgress(94 + Math.round(((index + 1) / reviewPages.length) * 4), `多模型交叉复核第 ${page.pageNumber} 页`);
-    const response = await fetch("/api/ai-review", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        pageNumber: page.pageNumber,
-        imageUrl: page.imageUrl,
-        width: page.width,
-        height: page.height,
-        elements: candidates.map(({ id, type, content, bbox, role }) => ({ id, type, content, bbox, role })),
-      }),
-    });
-    const data = await response.json() as ReviewResponse;
+    let response: Response;
+    try {
+      response = await fetch("/api/ai-review", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pageNumber: page.pageNumber,
+          imageUrl: page.imageUrl,
+          width: page.width,
+          height: page.height,
+          elements: candidates.map(({ id, type, content, bbox, role }) => ({ id, type, content, bbox, role })),
+        }),
+      });
+    } catch {
+      warning = "AI 复核接口暂时不可用，本次保留本地识别结果。";
+      continue;
+    }
+
+    let data: ReviewResponse = {};
+    try {
+      const body = await response.text();
+      data = body ? JSON.parse(body) as ReviewResponse : {};
+    } catch {
+      warning = "AI 复核接口返回了无法解析的数据，本次保留本地识别结果。";
+      continue;
+    }
     if (!response.ok) {
       if (data.error === "AI_NOT_CONFIGURED") {
         warning = "站点尚未配置 OpenAI 或 DeepSeek API 密钥，本次保留本地识别结果。";
