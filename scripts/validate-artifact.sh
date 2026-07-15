@@ -9,6 +9,8 @@ fi
 
 worker="${SITES_PROJECT_ROOT}/dist/server/index.js"
 hosting="${SITES_PROJECT_ROOT}/dist/.openai/hosting.json"
+relaxed_core="${SITES_PROJECT_ROOT}/dist/client/tesseract-core/tesseract-core-relaxedsimd-lstm.wasm.js"
+relaxed_legacy_core="${SITES_PROJECT_ROOT}/dist/client/tesseract-core/tesseract-core-relaxedsimd.wasm.js"
 
 [[ -f "${worker}" ]] || {
   echo "Missing Sites Worker entry: dist/server/index.js" >&2
@@ -16,6 +18,10 @@ hosting="${SITES_PROJECT_ROOT}/dist/.openai/hosting.json"
 }
 [[ -f "${hosting}" ]] || {
   echo "Missing packaged Sites manifest: dist/.openai/hosting.json" >&2
+  exit 66
+}
+[[ -f "${relaxed_core}" && -f "${relaxed_legacy_core}" ]] || {
+  echo "Missing Tesseract.js v7 relaxed-SIMD browser cores in dist/client/tesseract-core." >&2
   exit 66
 }
 
@@ -34,4 +40,4 @@ if (!worker.default || typeof worker.default.fetch !== "function") {
 }
 NODE
 
-echo "Validated Sites artifact: ESM Worker default.fetch and hosting manifest are present."
+echo "Validated Sites artifact: Worker, hosting manifest, and Tesseract.js v7 browser cores are present."
